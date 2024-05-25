@@ -5,6 +5,7 @@ import pandas
 import seaborn
 import numpy as np
 import matplotlib.pyplot as plt
+
 from tensorflow import keras
 import os
 from PIL import Image
@@ -19,32 +20,127 @@ def DIP(img1):
     # 阈值化
     thresh_img1 = cv2.adaptiveThreshold(img1, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, 145, 0)
 
-    # 闭操作（先膨胀后腐蚀）
-    close_img1 = cv2.morphologyEx(thresh_img1, cv2.MORPH_CLOSE, np.ones((5, 2), np.uint8))
+    # # 闭操作（先膨胀后腐蚀）
+    # close_img1 = cv2.morphologyEx(thresh_img1, cv2.MORPH_CLOSE, np.ones((5, 2), np.uint8))
+    #
+    # open_img1 = cv2.morphologyEx(close_img1, cv2.MORPH_OPEN, np.ones((3, 2), np.uint8), iterations=1)
 
-    # 膨胀
-    dilate_img1 = cv2.dilate(close_img1, np.ones((2, 2), np.uint8), iterations=1)
+    # median_img1 = cv2.medianBlur(thresh_img1, ksize=5)
+    # # 膨胀
+    # dilate_img1 = cv2.dilate(median_img1, np.ones((2, 2), np.uint8), iterations=1)
 
-    # 平滑
-    gauss_img1 = cv2.GaussianBlur(dilate_img1, (1, 1), 0)
-    return gauss_img1
+    # # 平滑
+    # gauss_img1 = cv2.GaussianBlur(dilate_img1, (1, 1), 0)
+    return thresh_img1
+
+def DIP2(img1):
+    # 阈值化
+    thresh_img1 = cv2.adaptiveThreshold(img1, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, 145, 0)
+
+    # # 闭操作（先膨胀后腐蚀）
+    # close_img1 = cv2.morphologyEx(thresh_img1, cv2.MORPH_CLOSE, np.ones((5, 2), np.uint8))
+    #
+    # open_img1 = cv2.morphologyEx(close_img1, cv2.MORPH_OPEN, np.ones((3, 2), np.uint8), iterations=1)
+
+    median_img1 = cv2.medianBlur(thresh_img1, ksize=5)
+    # # 膨胀
+    # dilate_img1 = cv2.dilate(median_img1, np.ones((2, 2), np.uint8), iterations=1)
+
+    # # 平滑
+    # gauss_img1 = cv2.GaussianBlur(dilate_img1, (1, 1), 0)
+    return median_img1
+def get_images_cor(img):
+    '''
+    垂直投影为从上往下投射，统计每一列的黑色像素总数
+    '''
+    rows, cols = img.shape
+    ver_list = [0] * cols
+    for j in range(cols - 25):
+        for i in range(10, rows - 10):
+            if img.item(i, j) == 0:
+                ver_list[j] = ver_list[j] + 1
+    '''
+    对ver_list中的元素进行筛选，可以去除一些噪点
+    '''
+    ver_arr = np.array(ver_list)
+    ver_arr[np.where(ver_arr < 8)] = 0
+    ver_list = ver_arr.tolist()
+    # print(ver_list)
+    # print([i for i in range(0,200)])
+    '''
+    分割字符
+    '''
+    w_list = {}
+    last = 0
+    begin = 0
+    for index, i in enumerate(ver_list):
+        if i * 3 < last and last:
+            last = i
+            back = index
+            w = sum(ver_list[begin:back])
+            w_list[w] = (begin, back)
+            begin = back
+        else:
+            last = i
+    # '''
+    # 得到横坐标
+    # '''
+    x_list = []
+
+    # 按子列表的长度排序
+    sorted_lists = sorted(w_list.items(), key=lambda d: d[0], reverse=True)
+
+    # 选取前四个子列表
+    top_four = sorted_lists[:4]
+    # print(top_four)
+    for weight, (a, b) in top_four:
+        # print(weight, a, b)
+        cent = (a + b) // 2
+        x_list.append(cent + 5)
+    return list(map(int, sorted(x_list)))
 
 
 X = []
 y = []
-
+cnt = 0
 for image in os.listdir(path):
-
+    cnt = cnt + 1
+    if cnt % 100 == 0:
+        print(f"Working on data {cnt}")
     if not image.endswith(".png"):
         continue
 
     img = cv2.imread(os.path.join(path, image), cv2.IMREAD_GRAYSCALE)
     img = DIP(img)
-    image_list = [img[10:70, 10:50], img[10:70, 50:90], img[10:70, 90:130], img[10:70, 130:170]]
+    try:
+        X_list = get_images_cor(img)
+        if len(X_list) != 4:
+            print(f"{image} was discarded")
+            continue
+        image_list = []
+        image_list = np.zeros((4, 60, 40))
+        for i in range(4):
+            temp = img[10:70, max(0, X_list[i] - 20):min(200, X_list[i] + 20)]
+            if np.shape(temp)[1] != 40:
+                col = 40 - np.shape(temp)[1]
+                temp = np.pad(temp, ((0, 0), (0, col)), mode='constant')
+            image_list[i] = temp
 
-    for i in range(4):
-        X.append(img_to_array(Image.fromarray(image_list[i])))
-        y.append(image[i])
+        # 均匀分割
+        # image_list = [img[10:70, 10:50], img[10:70, 50:90], img[10:70, 90:130], img[10:70, 130:170]]
+        # plt.imshow(img)
+        # print(image)
+        # plt.pause(0.1)
+
+        for i in range(4):
+            # plt.imshow(image_list[i])
+            # plt.pause(0.1)
+            X.append(img_to_array(Image.fromarray(image_list[i])))
+            y.append(image[i])
+        # exit(1)
+    except Exception as e:
+        print(f"Warning!{e}")
+
 X = np.array(X)
 y = np.array(y)
 print(X.shape)
@@ -194,15 +290,17 @@ trainX, trainy = train_set.next()
 
 model = cnn(128, 32, 16, 32, 32)
 model.summary()
+
+# Inference 时注释掉
 from keras.callbacks import ModelCheckpoint, ReduceLROnPlateau
 
-checkp = ModelCheckpoint('log/result_model_62.h5', monitor='val_loss', verbose=1, save_best_only=True)
-reduce = ReduceLROnPlateau(monitor='val_loss', patience=20, verbose=1)
+checkp = ModelCheckpoint('log/result_model_new.h5', monitor='val_loss', verbose=1, save_best_only=True)
+reduce = ReduceLROnPlateau(monitor='val_loss', patience=5, verbose=1)
 print(X_train.shape)
 print(y_train.shape)
 
-history = model.fit(traingen.flow(X_train, y_train, batch_size=32), validation_data=(X_test, y_test), epochs=200,
-                    steps_per_epoch=len(X_train) / 32, callbacks=[checkp])
+history = model.fit(traingen.flow(X_train, y_train, batch_size=8), validation_data=(X_test, y_test), epochs=200,
+                    steps_per_epoch=len(X_train) / 8, callbacks=[checkp])
 #
 plt.figure(figsize=(20, 10))
 plt.subplot(2, 1, 1)
@@ -220,12 +318,15 @@ plt.xlabel('Epochs')
 plt.ylabel('Accuracy')
 plt.legend(['train acc', 'val acc'])
 plt.title('Model accuracy wrt Epoch')
+plt.savefig('foo.png')
 plt.pause(1)
+
+# end here
 
 # 模型效果展示
 from keras.models import load_model
 
-model = load_model('log/result_model_62.h5')
+model = load_model('log/result_model_81.h5')
 pred = model.predict(X_test)
 pred = np.argmax(pred, axis=1)
 yres = np.argmax(y_test, axis=1)
@@ -237,36 +338,67 @@ for i in sorted(info):
 print('Accuracy : ' + str(accuracy_score(yres, pred)))
 print(classification_report(yres, pred, target_names=target_name))
 
-#
-# def get_demo(img_path):
-#     img = cv2.imread(img_path, cv2.IMREAD_GRAYSCALE)
-#
-#     plt.imshow(img, 'gray')
-#     plt.axis('off')
-#     plt.show()
-#
-#     img = DIP(img)
-#
-#     image_list = [img[10:50, 30:50], img[10:50, 50:70], img[10:50, 70:90], img[10:50, 90:110], img[10:50, 110:130]]
-#
-#     plt.imshow(img, 'gray')
-#     plt.axis('off')
-#     plt.show()
-#     Xdemo = []
-#     for i in range(5):
-#         Xdemo.append(img_to_array(Image.fromarray(image_list[i])))
-#
-#     Xdemo = np.array(Xdemo)
-#     Xdemo /= 255.0
-#
-#     ydemo = model.predict(Xdemo)
-#     ydemo = np.argmax(ydemo, axis=1)
-#
-#     for res in ydemo:
-#         print(info[res])
-#     print(img_path[-9:])
-#
-# get_demo('../input/captcha-version-2-images/samples/2g783.png')
-# get_demo('../input/captcha-version-2-images/samples/2fxgd.png')
-# get_demo('../input/captcha-version-2-images/samples/88bgx.png')
-# get_demo('../input/captcha-version-2-images/samples/4yc85.png')
+
+def get_demo(img_path):
+    img = cv2.imread(img_path, cv2.IMREAD_GRAYSCALE)
+
+    # plt.imshow(img, 'gray')
+    # plt.axis('off')
+    # plt.show()
+    # plt.pause(0.1)
+
+    img = DIP(img)
+    try:
+        X_list = get_images_cor(img)
+        if len(X_list) != 4:
+            print(f"{image} was discarded")
+        image_list = []
+        image_list = np.zeros((4, 60, 40))
+        for i in range(4):
+            temp = img[10:70, max(0, X_list[i] - 20):min(200, X_list[i] + 20)]
+            if np.shape(temp)[1] != 40:
+                col = 40 - np.shape(temp)[1]
+                temp = np.pad(temp, ((0, 0), (0, col)), mode='constant')
+            image_list[i] = temp
+    except:
+        print("error!")
+
+    # plt.imshow(img, 'gray')
+    # plt.axis('off')
+    # plt.show()
+    # plt.pause(0.1)
+    Xdemo = []
+    for i in range(4):
+        Xdemo.append(img_to_array(Image.fromarray(image_list[i])))
+
+    Xdemo = np.array(Xdemo)
+    Xdemo /= 255.0
+
+    ydemo = model.predict(Xdemo)
+    ydemo = np.argmax(ydemo, axis=1)
+
+    pr = []
+    for res in ydemo:
+        pr.append(info[res])
+    # print(pr)
+    p = img_path.split('\\')[-1][:4]
+    # print(p)
+    if "".join(pr) == p:
+        return True
+    return False
+
+
+# Inference
+# cnt = 0.0
+# cnt_r = 0.0
+# for image in os.listdir(path):
+#     if not image.endswith(".png"):
+#         continue
+#     cnt = cnt + 1
+#     # if cnt == 100:
+#     #     break
+#     if cnt % 100==0:
+#         print(f"{cnt} images have been predicted")
+#     if get_demo(f'{os.path.join(path, image)}'):
+#         cnt_r = cnt_r + 1
+# print(cnt_r/cnt)
