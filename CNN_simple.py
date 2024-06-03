@@ -326,7 +326,7 @@ plt.pause(1)
 # 模型效果展示
 from keras.models import load_model
 
-model = load_model('log/result_model_81.h5')
+model = load_model('log/result_CNN_90_lowtest.h5')
 pred = model.predict(X_test)
 pred = np.argmax(pred, axis=1)
 yres = np.argmax(y_test, axis=1)
