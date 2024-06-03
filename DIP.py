@@ -1,14 +1,16 @@
 import cv2
-import pandas
-import seaborn
+import os
 import numpy as np
 import matplotlib.pyplot as plt
-from tensorflow import keras
+import torch
 
-path1 = "data/train/2lpF_209.png"
-path2 = 'data/train/2Zku_875.png'
-
-
+data_path = "data/train"
+save_path = "torch_data/train"
+l_to_n={
+    '0':0,'1':1,'2':2,'3':3,'4':4,'5':5,'6':6,'7':7,'8':8,'9':9,
+    'a':10,'b':11,'c':12,'d':13,'e':14,'f':15,'g':16,'h':17,'i':18,'j':19,'k':20,'l':21,'m':22,'n':23,'o':24,'p':25,'q':26,'r':27,'s':28,'t':29,'u':30,'v':31,'w':32,'x':33,'y':34,'z':35,
+    'A':36,'B':37,'C':38,'D':39,'E':40,'F':41,'G':42,'H':43,'I':44,'J':45,'K':46,'L':47,'M':48,'N':49,'O':50,'P':51,'Q':52,'R':53,'S':54,'T':55,'U':56,'V':57,'W':58,'X':59,'Y':60,'Z':61,
+}
 def pp(img):
     plt.imshow(img)
     plt.pause(0.1)
@@ -29,43 +31,13 @@ def plot_(img1, img2):
     plt.pause(0.1)
 
 
-img1 = cv2.imread(path1, cv2.IMREAD_GRAYSCALE)
-img2 = cv2.imread(path2, cv2.IMREAD_GRAYSCALE)
-
-# 阈值化
-thresh_img1 = cv2.adaptiveThreshold(img1, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, 145, 0)
-thresh_img2 = cv2.adaptiveThreshold(img2, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, 145, 0)
-
-# # 闭操作（先膨胀后腐蚀）
-# close_img1 = cv2.morphologyEx(thresh_img1, cv2.MORPH_CLOSE, np.ones((5, 2), np.uint8), iterations=1)
-# close_img2 = cv2.morphologyEx(thresh_img2, cv2.MORPH_CLOSE, np.ones((5, 2), np.uint8), iterations=1)
-#
-# #
-# # 开操作（先膨胀后腐蚀）
-# open_img1 = cv2.morphologyEx(close_img1, cv2.MORPH_OPEN, np.ones((5, 2), np.uint8), iterations=1)
-# open_img2 = cv2.morphologyEx(close_img2, cv2.MORPH_OPEN, np.ones((5, 2), np.uint8), iterations=1)
-#
-#
-# median_img1 = cv2.medianBlur(thresh_img1, ksize=5)
-# median_img2 = cv2.medianBlur(thresh_img2, ksize=5)
-
-# # 膨胀
-# dilate_img1 = cv2.dilate(median_img1, np.ones((2, 2), np.uint8), iterations=1)
-# dilate_img2 = cv2.dilate(median_img2, np.ones((2, 2), np.uint8), iterations=1)
-
-# # 平滑
-# gauss_img1 = cv2.GaussianBlur(dilate_img1, (1, 1), 0)
-# gauss_img2 = cv2.GaussianBlur(dilate_img2, (1, 1), 0)
-
-
 def get_images_cor(img):
-    pp(img)
     '''
     垂直投影为从上往下投射，统计每一列的黑色像素总数
     '''
     rows, cols = img.shape
     ver_list = [0] * cols
-    for j in range(cols - 25):
+    for j in range(15,cols - 25):
         for i in range(10, rows - 10):
             if img.item(i, j) == 0:
                 ver_list[j] = ver_list[j] + 1
@@ -73,7 +45,7 @@ def get_images_cor(img):
     对ver_list中的元素进行筛选，可以去除一些噪点
     '''
     ver_arr = np.array(ver_list)
-    ver_arr[np.where(ver_arr < 8)] = 0
+    ver_arr[np.where(ver_arr < 9)] = 0
     ver_list = ver_arr.tolist()
     # print(ver_list)
     # print([i for i in range(0,200)])
@@ -106,29 +78,42 @@ def get_images_cor(img):
     for weight, (a, b) in top_four:
         # print(weight, a, b)
         cent = (a + b) // 2
-        x_list.append(cent)
+        x_list.append(cent+2)
     return list(map(int, sorted(x_list)))
 
 
-img = thresh_img1
-X_list = get_images_cor(img)
-print(X_list)
-img_list = [img[10:70, X_list[0] - 20:X_list[0] + 20], img[10:70, X_list[1] - 20:X_list[1] + 20],
-            img[10:70, X_list[2] - 20:X_list[2] + 20], img[10:70, X_list[3] - 20:X_list[3] + 20]]
+cnt = 0
+for image in os.listdir(data_path):
+    cnt = cnt + 1
+    if cnt % 100 == 0:
+        print(f"Working on data {cnt}")
+    if not image.endswith(".png"):
+        continue
+    img_ori = cv2.imread(os.path.join(data_path, image), cv2.IMREAD_GRAYSCALE)
+    img = cv2.adaptiveThreshold(img_ori, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, 141, 0)
+    median_img1 = cv2.medianBlur(img, ksize=5)
+    gauss_img1 = cv2.GaussianBlur(median_img1, (1, 1), 0)
 
-for i in img_list:
-    pp(i)
-exit(1)
+    # try:
+    X_list = get_images_cor(gauss_img1)
+    if len(X_list) != 4:
+        print(f"{image} was discarded")
+        continue
+    image_list = np.zeros((4, 60, 40))
+    for i in range(4):
+        temp = img[10:70, max(0, X_list[i] - 20):min(200, X_list[i] + 20)]
+        if np.shape(temp)[1] != 40:
+            col = 40 - np.shape(temp)[1]
+            temp = np.pad(temp, ((0, 0), (0, col)), mode='constant',constant_values=(255,255))
+        image_list[i] = temp
 
-# cv2.rectangle(gauss_img1, (10,10), (50,70), 0, 1)
-# cv2.rectangle(gauss_img1, (50,10), (90,70), 0, 1)
-# cv2.rectangle(gauss_img1, (90,10), (130,70), 0, 1)
-# cv2.rectangle(gauss_img1, (130,10), (170,70),0, 1)
-#
-#
-# cv2.rectangle(gauss_img2, (10,10), (55,70), 0, 1)
-# cv2.rectangle(gauss_img2, (55,10), (100,70), 0, 1)
-# cv2.rectangle(gauss_img2, (100,10), (145,70), 0, 1)
-# cv2.rectangle(gauss_img2, (145,10),(190,70),0, 1)
-#
-# plot_(gauss_img1, gauss_img2)
+    filename = str(image).split('/')[-1].split('_')[0]
+    for idx,img in enumerate(image_list):
+        dir_path=os.path.join(save_path, f"{l_to_n[filename[idx]]}")
+        if not os.path.exists(dir_path):
+            os.mkdir(f"{dir_path}")
+        cv2.imwrite(os.path.join(dir_path, f"{filename}_{filename[idx]}_.png"), img)
+
+    # except Exception as e:
+    #     print(f"Warning!{e}")
+print("Image processing finished")
